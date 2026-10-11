@@ -5,11 +5,22 @@ const dec = new TextDecoder();
 let savings = [], goals = {}, arqRate = 0, arqDate = '', activeKey = null;
 const colors = ['#8ED1C5','#F4C95D','#C6A7E2','#F09A8E','#88B7E8','#E6A76F','#A7C97E','#D9A6C7'];
 
-const cop = v => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(v)||0);
+const cop = v => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:0,maximumFractionDigits:2}).format(Number(v)||0);
 const usd = v => new Intl.NumberFormat('es-CO',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v)||0);
 const b64 = bytes => btoa(Array.from(new Uint8Array(bytes), b => String.fromCharCode(b)).join(''));
 const ub64 = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
 const esc = s => String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+const parseDecimal = value => {
+  let s = String(value ?? '').trim().replace(/\s/g,'');
+  if (!s) return NaN;
+  if (s.includes(',') && s.includes('.')) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g,'').replace(',', '.');
+    else s = s.replace(/,/g,'');
+  } else if (s.includes(',')) {
+    s = s.replace(',', '.');
+  }
+  return Number(s);
+};
 
 async function deriveKey(password, salt) {
   if (!window.crypto || !crypto.subtle) throw new Error('Este navegador no permite cifrado seguro. Abre la app en Safari usando HTTPS.');
@@ -108,14 +119,15 @@ function exportExcel(){if(!savings.length)return alert('No hay datos para export
 
 document.addEventListener('DOMContentLoaded',()=>{
   document.documentElement.style.setProperty('--accent',C.accent);document.documentElement.style.setProperty('--accent2',C.accent2);document.title=C.name;$('title').textContent=C.name;$('unlockTitle').textContent=C.name;
+  ['amount','goalInput','arqInput'].forEach(id=>{const el=$(id);if(el){el.type='text';el.inputMode='decimal';el.autocorrect='off';el.autocapitalize='off';}});
   const has=!!localStorage.getItem(C.vaultKey);$('setup').hidden=has;$('unlock').hidden=!has;$('overlay').hidden=false;render();
   $('setupForm').addEventListener('submit',e=>{e.preventDefault();setupAccount()});$('unlockForm').addEventListener('submit',e=>{e.preventDefault();unlockAccount()});$('lockBtn').onclick=lock;
   $('newBtn').onclick=()=>{$('savingForm').reset();$('date').value=new Date().toISOString().slice(0,10);$('savingDialog').showModal()};
   document.querySelectorAll('#cancelSaving').forEach(b=>b.onclick=()=>$('savingDialog').close());
   $('bank').onchange=()=>{$('amountHelp').textContent=$('bank').value==='ARQ'?'Valor en dólares (USD).':'Valor en pesos colombianos (COP).'};
-  $('savingForm').onsubmit=async e=>{e.preventDefault();const amount=Number($('amount').value),date=$('date').value,bank=$('bank').value;if(!(amount>0)||!date||!bank)return;savings.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),amount,date,bank});await saveVault();$('savingDialog').close();render()};
-  $('goalBtn').onclick=()=>{$('goalInput').value=goals[monthKey()]||'';$('goalDialog').showModal()};$('cancelGoal').onclick=()=>$('goalDialog').close();$('goalForm').onsubmit=async e=>{e.preventDefault();const v=Number($('goalInput').value);if(!(v>0))return;goals[monthKey()]=v;await saveVault();$('goalDialog').close();render()};
-  $('saveArq').onclick=async()=>{const v=Number($('arqInput').value);if(!(v>0))return;arqRate=v;arqDate=new Intl.DateTimeFormat('es-CO',{dateStyle:'medium'}).format(new Date());await saveVault();render()};
+  $('savingForm').onsubmit=async e=>{e.preventDefault();const amount=parseDecimal($('amount').value),date=$('date').value,bank=$('bank').value;if(!(amount>0)||!date||!bank)return;savings.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),amount,date,bank});await saveVault();$('savingDialog').close();render()};
+  $('goalBtn').onclick=()=>{$('goalInput').value=goals[monthKey()]||'';$('goalDialog').showModal()};$('cancelGoal').onclick=()=>$('goalDialog').close();$('goalForm').onsubmit=async e=>{e.preventDefault();const v=parseDecimal($('goalInput').value);if(!(v>0))return;goals[monthKey()]=v;await saveVault();$('goalDialog').close();render()};
+  $('saveArq').onclick=async()=>{const v=parseDecimal($('arqInput').value);if(!(v>0))return;arqRate=v;arqDate=new Intl.DateTimeFormat('es-CO',{dateStyle:'medium'}).format(new Date());await saveVault();render()};
   $('backupBtn').onclick=()=>{const raw=localStorage.getItem(C.vaultKey);if(!raw)return alert('No hay copia cifrada para exportar.');const blob=new Blob([JSON.stringify({app:C.name,type:'encrypted-backup',version:1,exportedAt:new Date().toISOString(),vault:JSON.parse(raw)},null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=C.backup;a.click();URL.revokeObjectURL(u)};
   $('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const p=JSON.parse(await f.text());if(!p.vault?.salt||!p.vault?.iv||!p.vault?.cipher)throw new Error();if(!confirm('Esto reemplazará los datos actuales. ¿Continuar?'))return;localStorage.setItem(C.vaultKey,JSON.stringify(p.vault));lock();$('unlockErr').textContent='Copia restaurada. Usa la contraseña con la que se creó.'}catch{alert('No fue posible restaurar la copia.')}finally{e.target.value=''}};
   $('exportBtn').onclick=exportExcel;
