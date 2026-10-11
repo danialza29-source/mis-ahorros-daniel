@@ -2,7 +2,7 @@ const C = window.APP_CONFIG;
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-let savings = [], goals = {}, arqRate = 0, arqDate = '', activeKey = null;
+let savings = [], goals = {}, arqRate = 0, arqDate = '', activeKey = null, editingId = null;
 const colors = ['#8ED1C5','#F4C95D','#C6A7E2','#F09A8E','#88B7E8','#E6A76F','#A7C97E','#D9A6C7'];
 
 const cop = v => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:0,maximumFractionDigits:2}).format(Number(v)||0);
@@ -21,6 +21,7 @@ const parseDecimal = value => {
   }
   return Number(s);
 };
+const inputDecimal = v => (v === '' || v === null || v === undefined) ? '' : String(v).replace('.', ',');
 
 async function deriveKey(password, salt) {
   if (!window.crypto || !crypto.subtle) throw new Error('Este navegador no permite cifrado seguro. Abre la app en Safari usando HTTPS.');
@@ -51,15 +52,18 @@ async function saveVault() {
   localStorage.setItem(C.vaultKey, JSON.stringify({version:1,salt:vault.salt,...encrypted}));
 }
 function valueCOP(x){return x.bank==='ARQ' ? Number(x.amount)*arqRate : Number(x.amount)}
+function monthlyRateFromEA(ea){const r=Number(ea)||0;return r>0 ? Math.pow(1+r/100,1/12)-1 : 0}
+function monthlyInterest(x){return valueCOP(x)*monthlyRateFromEA(x.eaRate)}
 function monthKey(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 function monthName(){return new Intl.DateTimeFormat('es-CO',{month:'long',year:'numeric'}).format(new Date())}
 function dateFmt(s){const [y,m,d]=s.split('-').map(Number);return new Intl.DateTimeFormat('es-CO',{day:'numeric',month:'short',year:'numeric'}).format(new Date(y,m-1,d))}
 function grouped(){
   const out={};
   for(const x of savings){
-    if(!out[x.bank]) out[x.bank]={cop:0,usd:0};
+    if(!out[x.bank]) out[x.bank]={cop:0,usd:0,interest:0};
     if(x.bank==='ARQ'){out[x.bank].usd+=Number(x.amount);out[x.bank].cop+=valueCOP(x)}
     else out[x.bank].cop+=Number(x.amount);
+    out[x.bank].interest += monthlyInterest(x);
   }
   return Object.entries(out).sort((a,b)=>b[1].cop-a[1].cop);
 }
@@ -81,14 +85,28 @@ function renderGoal(){
 }
 function render(){
   const total=savings.reduce((a,x)=>a+valueCOP(x),0),banks=grouped();
+  const totalInterest=savings.reduce((a,x)=>a+monthlyInterest(x),0);
   $('total').textContent=cop(total);$('count').textContent=savings.length?`${savings.length} ${savings.length===1?'registro':'registros'} de ahorro`:'Aún no tienes registros.';$('bankCount').textContent=`${banks.length} ${banks.length===1?'entidad':'entidades'}`;
-  $('banks').innerHTML=banks.length?banks.map(([b,d])=>`<div class="row"><div><b>${esc(b)}</b><span class="muted">${total?Math.round(d.cop/total*100):0}% del total${b==='ARQ'?` · ${usd(d.usd)}`:''}</span></div><b>${b==='ARQ'&&!arqRate?'Falta tasa':cop(d.cop)}</b></div>`).join(''):'<div class="empty">Agrega tu primer ahorro.</div>';
+  $('interestSummary').textContent=totalInterest>0?`Interés mensual estimado: ${cop(totalInterest)}`:'Interés mensual estimado: $0';
+  $('banks').innerHTML=banks.length?banks.map(([b,d])=>`<div class="row"><div><b>${esc(b)}</b><span class="muted">${total?Math.round(d.cop/total*100):0}% del total${b==='ARQ'?` · ${usd(d.usd)}`:''}${d.interest>0?` · interés/mes ${cop(d.interest)}`:''}</span></div><b>${b==='ARQ'&&!arqRate?'Falta tasa':cop(d.cop)}</b></div>`).join(''):'<div class="empty">Agrega tu primer ahorro.</div>';
   renderPie(banks,total);renderGoal();
-  const hasARQ=savings.some(x=>x.bank==='ARQ');$('arqCard').hidden=!hasARQ;if(hasARQ){$('arqInput').value=arqRate||'';$('arqText').textContent=arqRate?`Tasa actual: ${cop(arqRate)} por USD${arqDate?' · '+arqDate:''}`:'Ingresa la tasa COP por USD.'}
+  const hasARQ=savings.some(x=>x.bank==='ARQ');$('arqCard').hidden=!hasARQ;if(hasARQ){$('arqInput').value=inputDecimal(arqRate||'');$('arqText').textContent=arqRate?`Tasa actual: ${cop(arqRate)} por USD${arqDate?' · '+arqDate:''}`:'Ingresa la tasa COP por USD.'}
   const rows=[...savings].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  $('tbody').innerHTML=rows.map(x=>`<tr><td data-label="Fecha">${dateFmt(x.date)}</td><td data-label="Entidad">${esc(x.bank)}</td><td data-label="Valor"><b>${x.bank==='ARQ'?`${usd(x.amount)}${arqRate?` · ${cop(valueCOP(x))}`:' · Falta tasa'}`:cop(x.amount)}</b></td><td><button type="button" class="delete" data-id="${x.id}">Eliminar</button></td></tr>`).join('');
+  $('tbody').innerHTML=rows.map(x=>{
+    const mr=monthlyRateFromEA(x.eaRate);
+    const interest=monthlyInterest(x);
+    return `<tr><td data-label="Fecha">${dateFmt(x.date)}</td><td data-label="Entidad">${esc(x.bank)}</td><td data-label="Valor"><b>${x.bank==='ARQ'?`${usd(x.amount)}${arqRate?` · ${cop(valueCOP(x))}`:' · Falta tasa'}`:cop(x.amount)}</b></td><td data-label="Tasa E.A.">${Number(x.eaRate)>0?`${Number(x.eaRate).toLocaleString('es-CO',{maximumFractionDigits:4})}%`:'—'}</td><td data-label="Interés/mes">${interest>0?`<b>${cop(interest)}</b><span class="muted">${(mr*100).toLocaleString('es-CO',{minimumFractionDigits:3,maximumFractionDigits:4})}% E.M.</span>`:'—'}</td><td data-label="Acciones"><button type="button" class="edit" data-id="${x.id}">Editar</button> <button type="button" class="delete" data-id="${x.id}">Eliminar</button></td></tr>`;
+  }).join('');
   $('table').style.display=rows.length?'table':'none';$('empty').style.display=rows.length?'none':'block';
   document.querySelectorAll('.delete').forEach(btn=>btn.onclick=async()=>{if(confirm('¿Eliminar este ahorro?')){savings=savings.filter(x=>x.id!==btn.dataset.id);await saveVault();render()}});
+  document.querySelectorAll('.edit').forEach(btn=>btn.onclick=()=>openEdit(btn.dataset.id));
+}
+function openNew(){
+  editingId=null;$('savingForm').reset();$('savingTitle').textContent='Nuevo ahorro';$('date').value=new Date().toISOString().slice(0,10);$('amountHelp').textContent='Valor en pesos colombianos (COP).';$('savingDialog').showModal();
+}
+function openEdit(id){
+  const x=savings.find(s=>s.id===id);if(!x)return;
+  editingId=id;$('savingTitle').textContent='Editar ahorro';$('amount').value=inputDecimal(x.amount);$('date').value=x.date;$('bank').value=x.bank;$('eaRate').value=inputDecimal(x.eaRate||'');$('amountHelp').textContent=x.bank==='ARQ'?'Valor en dólares (USD).':'Valor en pesos colombianos (COP).';$('savingDialog').showModal();
 }
 async function setupAccount(){
   const err=$('setupErr'),btn=$('setupForm').querySelector('button');err.textContent='';
@@ -115,18 +133,28 @@ async function unlockAccount(){
   finally{btn.disabled=false;btn.textContent='Desbloquear'}
 }
 function lock(){activeKey=null;savings=[];goals={};arqRate=0;arqDate='';$('overlay').hidden=false;$('setup').hidden=true;$('unlock').hidden=false}
-function exportExcel(){if(!savings.length)return alert('No hay datos para exportar.');const rows=[['Fecha','Entidad bancaria','Moneda','Valor original','Equivalente COP'],...[...savings].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>[x.date,x.bank,x.bank==='ARQ'?'USD':'COP',x.amount,valueCOP(x)])];const html='<table>'+rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</table>';const blob=new Blob([html],{type:'application/vnd.ms-excel'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='mis_ahorros.xls';a.click();URL.revokeObjectURL(u)}
+function exportExcel(){
+  if(!savings.length)return alert('No hay datos para exportar.');
+  const rows=[['Fecha','Entidad bancaria','Moneda','Valor original','Equivalente COP','Tasa EA %','Interés mensual estimado COP'],...[...savings].sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(x=>[x.date,x.bank,x.bank==='ARQ'?'USD':'COP',x.amount,valueCOP(x),Number(x.eaRate)||'',monthlyInterest(x)])];
+  const html='<table>'+rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</table>';const blob=new Blob([html],{type:'application/vnd.ms-excel'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='mis_ahorros.xls';a.click();URL.revokeObjectURL(u)
+}
 
 document.addEventListener('DOMContentLoaded',()=>{
   document.documentElement.style.setProperty('--accent',C.accent);document.documentElement.style.setProperty('--accent2',C.accent2);document.title=C.name;$('title').textContent=C.name;$('unlockTitle').textContent=C.name;
-  ['amount','goalInput','arqInput'].forEach(id=>{const el=$(id);if(el){el.type='text';el.inputMode='decimal';el.autocorrect='off';el.autocapitalize='off';}});
+  ['amount','goalInput','arqInput','eaRate'].forEach(id=>{const el=$(id);if(el){el.type='text';el.inputMode='decimal';el.autocorrect='off';el.autocapitalize='off';}});
   const has=!!localStorage.getItem(C.vaultKey);$('setup').hidden=has;$('unlock').hidden=!has;$('overlay').hidden=false;render();
   $('setupForm').addEventListener('submit',e=>{e.preventDefault();setupAccount()});$('unlockForm').addEventListener('submit',e=>{e.preventDefault();unlockAccount()});$('lockBtn').onclick=lock;
-  $('newBtn').onclick=()=>{$('savingForm').reset();$('date').value=new Date().toISOString().slice(0,10);$('savingDialog').showModal()};
-  document.querySelectorAll('#cancelSaving').forEach(b=>b.onclick=()=>$('savingDialog').close());
+  $('newBtn').onclick=openNew;
+  document.querySelectorAll('#cancelSaving').forEach(b=>b.onclick=()=>{$('savingDialog').close();editingId=null});
   $('bank').onchange=()=>{$('amountHelp').textContent=$('bank').value==='ARQ'?'Valor en dólares (USD).':'Valor en pesos colombianos (COP).'};
-  $('savingForm').onsubmit=async e=>{e.preventDefault();const amount=parseDecimal($('amount').value),date=$('date').value,bank=$('bank').value;if(!(amount>0)||!date||!bank)return;savings.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),amount,date,bank});await saveVault();$('savingDialog').close();render()};
-  $('goalBtn').onclick=()=>{$('goalInput').value=goals[monthKey()]||'';$('goalDialog').showModal()};$('cancelGoal').onclick=()=>$('goalDialog').close();$('goalForm').onsubmit=async e=>{e.preventDefault();const v=parseDecimal($('goalInput').value);if(!(v>0))return;goals[monthKey()]=v;await saveVault();$('goalDialog').close();render()};
+  $('savingForm').onsubmit=async e=>{
+    e.preventDefault();const amount=parseDecimal($('amount').value),date=$('date').value,bank=$('bank').value,ea=parseDecimal($('eaRate').value);if(!(amount>0)||!date||!bank)return;
+    const eaRate=Number.isFinite(ea)&&ea>=0?ea:0;
+    if(editingId){const i=savings.findIndex(x=>x.id===editingId);if(i>=0)savings[i]={...savings[i],amount,date,bank,eaRate};}
+    else savings.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),amount,date,bank,eaRate});
+    await saveVault();$('savingDialog').close();editingId=null;render()
+  };
+  $('goalBtn').onclick=()=>{$('goalInput').value=inputDecimal(goals[monthKey()]||'');$('goalDialog').showModal()};$('cancelGoal').onclick=()=>$('goalDialog').close();$('goalForm').onsubmit=async e=>{e.preventDefault();const v=parseDecimal($('goalInput').value);if(!(v>0))return;goals[monthKey()]=v;await saveVault();$('goalDialog').close();render()};
   $('saveArq').onclick=async()=>{const v=parseDecimal($('arqInput').value);if(!(v>0))return;arqRate=v;arqDate=new Intl.DateTimeFormat('es-CO',{dateStyle:'medium'}).format(new Date());await saveVault();render()};
   $('backupBtn').onclick=()=>{const raw=localStorage.getItem(C.vaultKey);if(!raw)return alert('No hay copia cifrada para exportar.');const blob=new Blob([JSON.stringify({app:C.name,type:'encrypted-backup',version:1,exportedAt:new Date().toISOString(),vault:JSON.parse(raw)},null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=C.backup;a.click();URL.revokeObjectURL(u)};
   $('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{const p=JSON.parse(await f.text());if(!p.vault?.salt||!p.vault?.iv||!p.vault?.cipher)throw new Error();if(!confirm('Esto reemplazará los datos actuales. ¿Continuar?'))return;localStorage.setItem(C.vaultKey,JSON.stringify(p.vault));lock();$('unlockErr').textContent='Copia restaurada. Usa la contraseña con la que se creó.'}catch{alert('No fue posible restaurar la copia.')}finally{e.target.value=''}};
