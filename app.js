@@ -15,7 +15,7 @@ async function deriveKey(password, salt) {
   if (!window.crypto || !crypto.subtle) throw new Error('Este navegador no permite cifrado seguro. Abre la app en Safari usando HTTPS.');
   const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    {name:'PBKDF2', salt, iterations:150000, hash:'SHA-256'},
+    {name:'PBKDF2', salt, iterations:250000, hash:'SHA-256'},
     base,
     {name:'AES-GCM', length:256},
     false,
