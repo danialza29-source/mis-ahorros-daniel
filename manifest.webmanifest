@@ -1,0 +1,9 @@
+{
+  "name": "Mis Ahorros",
+  "short_name": "Mis Ahorros",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#1f6f5f"
+}
