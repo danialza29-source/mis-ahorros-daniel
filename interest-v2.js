@@ -36,6 +36,11 @@ function interestRenderPending(){
   list.querySelectorAll('.interestConfirmInput').forEach(el=>{el.addEventListener('input',e=>formatAmountField(e.target));el.addEventListener('blur',e=>{const v=parseAmount(e.target.value);if(Number.isFinite(v))e.target.value=formatAmountValue(v)})});
   list.querySelectorAll('.confirmInterest').forEach(btn=>btn.onclick=async()=>{const input=[...list.querySelectorAll('.interestConfirmInput')].find(el=>el.dataset.bank===btn.dataset.bank&&el.dataset.month===btn.dataset.month),amount=parseAmount(input?.value);if(!(amount>=0))return;const k=btn.dataset.month,bank=btn.dataset.bank;savings.push({id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${bank}`,amount,date:firstDayOfMonth(nextMonthKey(k)),bank,type:'interest',sourceMonth:k,eaApplied:latestRate(bank,k),manualInterest:true});await saveVault();render()});
 }
+function interestEnableDelete(){
+  const rows=[...$('tbody').querySelectorAll('tr')],ordered=[...savings].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  rows.forEach((tr,i)=>{const x=ordered[i];if(!x||x.type!=='interest')return;const cell=tr.querySelector('td:last-child');if(!cell)return;cell.innerHTML=`<button type="button" class="deleteInterest delete" data-id="${x.id}">Eliminar</button>`});
+  document.querySelectorAll('.deleteInterest').forEach(btn=>btn.onclick=async()=>{const x=savings.find(s=>s.id===btn.dataset.id);if(!x)return;if(confirm('¿Eliminar este interés? Se restará del saldo y volverá a quedar pendiente por confirmar.')){savings=savings.filter(s=>s.id!==x.id);await saveVault();render()}});
+}
 function ensureInterestReviewUI(){
   if(!$('interestReviewCard')){
     const card=document.createElement('section');card.className='card rateCard';card.id='interestReviewCard';card.hidden=true;
@@ -49,8 +54,8 @@ render=()=>{
   previousRender();
   const totalAccrued=bankNames().reduce((sum,bank)=>sum+(bank==='ARQ'?interestCurrent(bank)*arqRate:interestCurrent(bank)),0);
   if($('interestSummary'))$('interestSummary').textContent=`Interés acumulado estimado este mes: ${cop(totalAccrued)}`;
-  renderRates();interestRenderPending();
-  document.querySelectorAll('.delete').forEach(btn=>btn.onclick=async()=>{const x=savings.find(s=>s.id===btn.dataset.id);if(x&&confirm('¿Eliminar este ahorro?')){interestInvalidateFrom(monthFromDate(x.date));savings=savings.filter(s=>s.id!==btn.dataset.id);await saveVault();render()}});
+  renderRates();interestRenderPending();interestEnableDelete();
+  document.querySelectorAll('.delete').forEach(btn=>{if(btn.classList.contains('deleteInterest'))return;btn.onclick=async()=>{const x=savings.find(s=>s.id===btn.dataset.id);if(x&&confirm('¿Eliminar este ahorro?')){interestInvalidateFrom(monthFromDate(x.date));savings=savings.filter(s=>s.id!==btn.dataset.id);await saveVault();render()}}});
 };
 document.addEventListener('DOMContentLoaded',()=>{
   ensureInterestReviewUI();render();
