@@ -54,6 +54,8 @@ render=()=>{
   previousRender();
   const totalAccrued=bankNames().reduce((sum,bank)=>sum+(bank==='ARQ'?interestCurrent(bank)*arqRate:interestCurrent(bank)),0);
   if($('interestSummary'))$('interestSummary').textContent=`Interés acumulado estimado este mes: ${cop(totalAccrued)}`;
+  const goal=Number(goals[monthKey()])||0,monthsRemaining=12-new Date().getMonth();
+  if($('annual'))$('annual').textContent=goal?cop(goal*monthsRemaining):'Sin definir';
   renderRates();interestRenderPending();interestEnableDelete();
   document.querySelectorAll('.delete').forEach(btn=>{if(btn.classList.contains('deleteInterest'))return;btn.onclick=async()=>{const x=savings.find(s=>s.id===btn.dataset.id);if(x&&confirm('¿Eliminar este ahorro?')){interestInvalidateFrom(monthFromDate(x.date));savings=savings.filter(s=>s.id!==btn.dataset.id);await saveVault();render()}}});
 };
