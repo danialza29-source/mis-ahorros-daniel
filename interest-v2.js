@@ -36,6 +36,14 @@ function interestRenderPending(){
   list.querySelectorAll('.interestConfirmInput').forEach(el=>{el.addEventListener('input',e=>formatAmountField(e.target));el.addEventListener('blur',e=>{const v=parseAmount(e.target.value);if(Number.isFinite(v))e.target.value=formatAmountValue(v)})});
   list.querySelectorAll('.confirmInterest').forEach(btn=>btn.onclick=async()=>{const input=[...list.querySelectorAll('.interestConfirmInput')].find(el=>el.dataset.bank===btn.dataset.bank&&el.dataset.month===btn.dataset.month),amount=parseAmount(input?.value);if(!(amount>=0))return;const k=btn.dataset.month,bank=btn.dataset.bank;savings.push({id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${bank}`,amount,date:firstDayOfMonth(nextMonthKey(k)),bank,type:'interest',sourceMonth:k,eaApplied:latestRate(bank,k),manualInterest:true});await saveVault();render()});
 }
+function ensureInterestReviewUI(){
+  if(!$('interestReviewCard')){
+    const card=document.createElement('section');card.className='card rateCard';card.id='interestReviewCard';card.hidden=true;
+    card.innerHTML='<div class="head"><div><div class="label">Capitalización</div><h2 id="interestReviewTitle">Intereses por confirmar</h2><p class="muted" id="interestReviewText">Revisa el valor antes de sumarlo al saldo.</p></div></div><div id="pendingInterestList"></div>';
+    const rates=$('ratesList')?.closest('.card');if(rates)rates.insertAdjacentElement('afterend',card);else document.querySelector('main')?.appendChild(card);
+  }
+  const note=$('ratesList')?.nextElementSibling;if(note&&note.classList.contains('muted'))note.textContent='La tasa vigente se mantiene hasta que la cambies. El interés se calcula por los días efectivos de permanencia y debe confirmarse antes de sumarse al saldo.';
+}
 const previousRender=render;
 render=()=>{
   previousRender();
@@ -44,8 +52,8 @@ render=()=>{
   renderRates();interestRenderPending();
   document.querySelectorAll('.delete').forEach(btn=>btn.onclick=async()=>{const x=savings.find(s=>s.id===btn.dataset.id);if(x&&confirm('¿Eliminar este ahorro?')){interestInvalidateFrom(monthFromDate(x.date));savings=savings.filter(s=>s.id!==btn.dataset.id);await saveVault();render()}});
 };
-
 document.addEventListener('DOMContentLoaded',()=>{
+  ensureInterestReviewUI();render();
   $('savingForm').onsubmit=async e=>{
     e.preventDefault();const amount=parseAmount($('amount').value),date=$('date').value,bank=$('bank').value;if(!(amount>0)||!date||!bank)return;
     if(editingId){const i=savings.findIndex(x=>x.id===editingId);if(i>=0){const old=savings[i],from=[monthFromDate(old.date),monthFromDate(date)].sort()[0];interestInvalidateFrom(from);savings[i]={...old,amount,date,bank}}}
