@@ -1,121 +1,76 @@
-const MEMBERS = [
-  'Camilo Sierra','David Urrego','Esteban Jaramillo','Luisa Alviar','Manuela Villa','Rafa Mejía','Laura Velasquez','Sebastián Maldonado','Daniel Alzate'
-];
-const ADMINS = ['Daniel Alzate','Camilo Sierra'];
-const KEY = 'inversion_amigos_v1';
+const MEMBERS=['Camilo Sierra','David Urrego','Esteban Jaramillo','Luisa Alviar','Manuela Villa','Rafa Mejía','Laura Velasquez','Sebastián Maldonado','Daniel Alzate'];
+const ADMINS=['Manuela Villa','Daniel Alzate'];
+const KEY='inversion_amigos_v1';
+const ADMIN_KEY='inversion_amigos_admin_key_v1';
+const initialState={currentUser:null,deposits:[],investments:[],interestEntries:[]};
+let state=loadState(); state.currentUser=null; let tab='resumen'; let adminUnlocked=false;
 
-const initialState = {
-  currentUser: null,
-  deposits: [],
-  investments: [],
-  interestEntries: []
-};
+function loadState(){try{return {...initialState,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{return {...initialState}}}
+function save(){localStorage.setItem(KEY,JSON.stringify({...state,currentUser:null}));render()}
+function money(n){return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}
+function pct(n){return `${Number(n||0).toFixed(2).replace('.',',')}%`}
+function isAdmin(){return ADMINS.includes(state.currentUser)&&adminUnlocked}
+function todayISO(){return new Date().toISOString().slice(0,10)}
+function monthKey(d){return String(d||'').slice(0,7)}
+function currentMonthKey(){return todayISO().slice(0,7)}
+function currentMonthLabel(){return new Intl.DateTimeFormat('es-CO',{month:'long',year:'numeric'}).format(new Date()).replace(/^./,c=>c.toUpperCase())}
+function daysBetween(start){if(!start)return 0;return Math.max(0,Math.floor((new Date()-new Date(`${start}T00:00:00`))/86400000))}
+function dailyRate(ea){return Math.pow(1+Number(ea||0)/100,1/365)-1}
+function projectedInterest(i){return Number(i.amount||0)*(Math.pow(1+dailyRate(i.rate),daysBetween(i.startDate))-1)}
+function projectedDailyInterest(i){return Number(i.amount||0)*dailyRate(i.rate)}
+function totalProjectedInterest(){return state.investments.reduce((a,i)=>a+projectedInterest(i),0)}
+async function hashText(text){const data=new TextEncoder().encode(text);const hash=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('')}
 
-let state = loadState();
-let tab = 'resumen';
+function memberDepositTotals(){const t=Object.fromEntries(MEMBERS.map(m=>[m,0]));state.deposits.forEach(d=>t[d.member]=(t[d.member]||0)+Number(d.amount));return t}
+function monthlyDepositTotals(k){const t=Object.fromEntries(MEMBERS.map(m=>[m,0]));state.deposits.filter(d=>monthKey(d.date)===k).forEach(d=>t[d.member]+=Number(d.amount));return t}
+function monthlyInterestAmount(k){return state.interestEntries.filter(i=>monthKey(i.date)===k).reduce((a,i)=>a+Number(i.amount),0)}
+function memberInterestTotals(){const t=Object.fromEntries(MEMBERS.map(m=>[m,0]));[...new Set(state.interestEntries.map(i=>monthKey(i.date)))].forEach(k=>{const interest=monthlyInterestAmount(k),c=monthlyDepositTotals(k),base=MEMBERS.reduce((a,m)=>a+c[m],0);if(base<=0)return;MEMBERS.forEach(m=>{if(c[m]>0)t[m]+=interest*c[m]/base})});return t}
+function memberPatrimonyTotals(){const d=memberDepositTotals(),i=memberInterestTotals();return Object.fromEntries(MEMBERS.map(m=>[m,d[m]+i[m]]))}
+function totalSaved(){return state.deposits.reduce((a,d)=>a+Number(d.amount),0)}
+function totalInterest(){return state.interestEntries.reduce((a,i)=>a+Number(i.amount),0)}
+function totalInvested(){return state.investments.reduce((a,i)=>a+Number(i.amount),0)}
+function currentFundValue(){return totalSaved()+totalInterest()}
 
-function loadState(){
-  try { return {...initialState, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }
-  catch { return {...initialState}; }
+function loginView(){document.getElementById('app').innerHTML=`<div class="login"><div class="card login-card"><div class="brand"><h1>Inversión Amigos</h1><p>Selecciona tu nombre para consultar tu participación.</p></div><div class="member-list">${MEMBERS.map(m=>`<button class="member-btn" onclick="login('${m}')"><span>${m}</span><span class="badge">${ADMINS.includes(m)?'Administrador':'Solo lectura'}</span></button>`).join('')}</div></div></div>`}
+async function login(name){
+ if(ADMINS.includes(name)){
+  const stored=localStorage.getItem(ADMIN_KEY);
+  if(!stored){const first=prompt('Primera configuración: crea una clave de administrador para este navegador.');if(!first)return;const confirmKey=prompt('Confirma la clave de administrador.');if(first!==confirmKey){alert('Las claves no coinciden.');return}localStorage.setItem(ADMIN_KEY,await hashText(first));}
+  else {const key=prompt(`Ingresa la clave de administrador para ${name}`);if(key===null)return;if(await hashText(key)!==stored){alert('Clave incorrecta.');return}}
+  adminUnlocked=true;
+ } else adminUnlocked=false;
+ state.currentUser=name;render();
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(state)); render(); }
-function money(n){ return new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',maximumFractionDigits:0}).format(Number(n||0)); }
-function pct(n){ return `${Number(n||0).toFixed(2)}%`; }
-function isAdmin(){ return ADMINS.includes(state.currentUser); }
-function memberTotals(){
-  const totals = Object.fromEntries(MEMBERS.map(m=>[m,0]));
-  state.deposits.forEach(d=> totals[d.member]=(totals[d.member]||0)+Number(d.amount));
-  return totals;
-}
-function totalSaved(){ return state.deposits.reduce((a,d)=>a+Number(d.amount),0); }
-function totalInterest(){ return state.interestEntries.reduce((a,i)=>a+Number(i.amount),0); }
-function totalInvested(){ return state.investments.reduce((a,i)=>a+Number(i.amount),0); }
-function currentFundValue(){ return totalSaved()+totalInterest(); }
-
-function loginView(){
-  document.getElementById('app').innerHTML = `
-    <div class="login"><div class="card login-card">
-      <div class="brand"><h1>Inversión Amigos</h1><p>Selecciona tu perfil para ingresar al prototipo.</p></div>
-      <div class="note" style="margin-top:16px">Este MVP guarda la información solo en este navegador. Para uso real entre varias personas, el siguiente paso es conectarlo a una base de datos con autenticación.</div>
-      <div class="member-list">
-        ${MEMBERS.map(m=>`<button class="member-btn" onclick="login('${m.replaceAll("'","\\'")}')"><span>${m}</span><span class="badge">${ADMINS.includes(m)?'Administrador':'Solo lectura'}</span></button>`).join('')}
-      </div>
-    </div></div>`;
-}
-function login(name){ state.currentUser=name; save(); }
-function logout(){ state.currentUser=null; save(); }
-function setTab(t){ tab=t; render(); }
+function logout(){state.currentUser=null;adminUnlocked=false;render()}
+function setTab(t){tab=t;render()}
 
 function dashboardView(){
- const totals=memberTotals(); const saved=totalSaved(); const interest=totalInterest(); const fund=currentFundValue(); const invested=totalInvested();
- const sorted=[...MEMBERS].sort((a,b)=>totals[b]-totals[a]);
- document.getElementById('app').innerHTML = `
- <div class="shell">
-  <div class="topbar"><div class="brand"><h1>Inversión Amigos</h1><p>Fondo colectivo y participación individual</p></div>
-    <div class="userbox"><span class="badge">${state.currentUser} · ${isAdmin()?'Administrador':'Solo lectura'}</span><button class="btn secondary" onclick="logout()">Salir</button></div>
-  </div>
-  <div class="grid stats">
-    <div class="card"><div class="label">Ahorro colectivo</div><div class="value">${money(saved)}</div><div class="sub">Total aportado por los 9 participantes</div></div>
-    <div class="card"><div class="label">Intereses ganados</div><div class="value positive">${money(interest)}</div><div class="sub">Rentabilidad registrada</div></div>
-    <div class="card"><div class="label">Valor actual del fondo</div><div class="value">${money(fund)}</div><div class="sub">Aportes + intereses</div></div>
-    <div class="card"><div class="label">Capital registrado como invertido</div><div class="value">${money(invested)}</div><div class="sub">Puede estar distribuido entre varias inversiones</div></div>
-  </div>
-  <div class="tabs">
-    ${['resumen','aportes','inversiones','intereses'].map(t=>`<button class="tab ${tab===t?'active':''}" onclick="setTab('${t}')">${({resumen:'Resumen',aportes:'Aportes',inversiones:'Inversiones',intereses:'Intereses'})[t]}</button>`).join('')}
-  </div>
-  ${tab==='resumen'?summaryTab(sorted,totals,saved):''}
-  ${tab==='aportes'?depositsTab():''}
-  ${tab==='inversiones'?investmentsTab():''}
-  ${tab==='intereses'?interestTab():''}
- </div>`;
+ const dep=memberDepositTotals(),ints=memberInterestTotals(),pat=memberPatrimonyTotals(),saved=totalSaved(),interest=totalInterest(),fund=currentFundValue();
+ const sorted=[...MEMBERS].sort((a,b)=>pat[b]-pat[a]);const userValue=pat[state.currentUser]||0;const userPct=fund?userValue/fund*100:0;
+ document.getElementById('app').innerHTML=`<div class="shell"><div class="topbar"><div class="brand"><h1>Inversión Amigos</h1><p>Fondo colectivo y participación individual</p></div><div class="top-actions"><div class="month-pill">${currentMonthLabel()}</div><div class="userbox"><span class="badge">${state.currentUser} · ${isAdmin()?'Administrador':'Solo lectura'}</span><button class="btn secondary" onclick="logout()">Salir</button></div></div></div>
+ <div class="personal-banner"><div><div class="label">Tu ahorro total es de</div><div class="personal-value">${money(userValue)}</div></div><div class="personal-meta"><strong>${pct(userPct)}</strong><span>del patrimonio actual del fondo</span></div></div>
+ <div class="grid stats"><div class="card"><div class="label">Ahorro colectivo</div><div class="value">${money(saved)}</div><div class="sub">Aportes acumulados</div></div><div class="card"><div class="label">Intereses registrados</div><div class="value positive">${money(interest)}</div><div class="sub">Distribuidos por mes entre quienes aportaron</div></div><div class="card"><div class="label">Interés proyectado a hoy</div><div class="value positive">${money(totalProjectedInterest())}</div><div class="sub">Estimación diaria según las tasas E.A.</div></div><div class="card"><div class="label">Valor actual del fondo</div><div class="value">${money(fund)}</div><div class="sub">Aportes + intereses registrados</div></div></div>
+ <div class="tabs">${['resumen','aportes','inversiones','intereses'].map(t=>`<button class="tab ${tab===t?'active':''}" onclick="setTab('${t}')">${({resumen:'Resumen',aportes:'Aportes',inversiones:'Inversiones',intereses:'Intereses'})[t]}</button>`).join('')}</div>${tab==='resumen'?summaryTab(sorted,dep,ints,pat,fund):''}${tab==='aportes'?depositsTab():''}${tab==='inversiones'?investmentsTab():''}${tab==='intereses'?interestTab():''}</div>`
 }
 
-function summaryTab(sorted,totals,saved){
- return `<div class="grid content-grid">
-  <div class="card"><div class="section-title"><h2>Participación individual</h2><span class="muted">Según aportes acumulados</span></div>
-    <div class="table-wrap"><table><thead><tr><th>Participante</th><th>Aporte acumulado</th><th>Participación</th></tr></thead><tbody>
-      ${sorted.map(m=>{const p=saved?totals[m]/saved*100:0; return `<tr><td>${m}</td><td>${money(totals[m])}</td><td><strong>${pct(p)}</strong><div class="bar"><span style="width:${Math.min(p,100)}%"></span></div></td></tr>`}).join('')}
-    </tbody></table></div>
-  </div>
-  <div class="card"><div class="section-title"><h2>Últimos movimientos</h2></div>${recentMovements()}</div>
- </div>`;
-}
-function recentMovements(){
- const rows=[
-  ...state.deposits.map(x=>({date:x.date,type:'Aporte',detail:x.member,amount:Number(x.amount)})),
-  ...state.interestEntries.map(x=>({date:x.date,type:'Interés',detail:x.investmentName||'Rentabilidad',amount:Number(x.amount)}))
- ].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);
- if(!rows.length) return `<div class="empty">Aún no hay movimientos.</div>`;
- return `<table><tbody>${rows.map(r=>`<tr><td><div><strong>${r.type}</strong><div class="muted">${r.date} · ${r.detail}</div></div></td><td style="text-align:right">${money(r.amount)}</td></tr>`).join('')}</tbody></table>`;
-}
-function depositsTab(){
- return `<div class="split">
-  <div class="card"><div class="section-title"><h2>Historial de aportes</h2></div>${state.deposits.length?`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Persona</th><th>Valor</th><th></th></tr></thead><tbody>${[...state.deposits].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d=>`<tr><td>${d.date}</td><td>${d.member}</td><td>${money(d.amount)}</td><td>${isAdmin()?`<button class="btn secondary" onclick="removeDeposit('${d.id}')">Eliminar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No hay aportes registrados.</div>`}</div>
-  <div class="card"><div class="section-title"><h2>Registrar aporte</h2></div>${isAdmin()?depositForm():`<div class="empty">Tu perfil es de solo lectura.</div>`}</div>
- </div>`;
-}
-function depositForm(){ return `<form onsubmit="addDeposit(event)" class="form-grid">
- <div class="field"><label>Fecha</label><input type="date" name="date" required value="${new Date().toISOString().slice(0,10)}"></div>
- <div class="field"><label>Participante</label><select name="member" required>${MEMBERS.map(m=>`<option>${m}</option>`).join('')}</select></div>
- <div class="field full"><label>Valor aportado</label><input type="number" min="1" step="1" name="amount" placeholder="Ej. 500000" required></div>
- <div class="field full"><label>Nota opcional</label><input name="note" placeholder="Ej. Aporte octubre"></div>
- <div class="actions field full"><button class="btn" type="submit">Guardar aporte</button></div></form>`; }
-function addDeposit(e){ e.preventDefault(); const f=new FormData(e.target); state.deposits.push({id:crypto.randomUUID(),date:f.get('date'),member:f.get('member'),amount:Number(f.get('amount')),note:f.get('note')}); save(); }
-function removeDeposit(id){ if(confirm('¿Eliminar este aporte?')){state.deposits=state.deposits.filter(d=>d.id!==id);save();} }
+function monthlyProgressCard(){const m=monthlyDepositTotals(currentMonthKey()),contributors=MEMBERS.filter(x=>m[x]>0),progress=contributors.length/MEMBERS.length*100,total=MEMBERS.reduce((a,x)=>a+m[x],0),ok=progress>=100;return `<div class="card progress-card"><div class="section-title"><div><h2>Ahorro del mes</h2><span class="muted">${currentMonthLabel()}</span></div><strong class="${ok?'progress-ok':'progress-bad'}">${pct(progress)}</strong></div><div class="monthly-total">${money(total)}</div><div class="sub">${contributors.length} de ${MEMBERS.length} integrantes han ahorrado este mes</div><div class="progress-track"><span class="${ok?'complete':'incomplete'}" style="width:${Math.min(progress,100)}%"></span></div><div class="people-status">${MEMBERS.map(x=>`<span class="status-chip ${m[x]>0?'done':'pending'}">${x.split(' ')[0]} ${m[x]>0?'✓':'·'}</span>`).join('')}</div></div>`}
+function summaryTab(sorted,dep,ints,pat,fund){return `<div class="summary-stack">${monthlyProgressCard()}<div class="grid content-grid"><div class="card"><div class="section-title"><h2>Participación individual</h2><span class="muted">Aportes + intereses asignados</span></div><div class="table-wrap"><table><thead><tr><th>Participante</th><th>Aportes</th><th>Intereses</th><th>Patrimonio</th><th>Participación</th></tr></thead><tbody>${sorted.map(m=>{const p=fund?pat[m]/fund*100:0;return `<tr><td>${m}</td><td>${money(dep[m])}</td><td class="positive">${money(ints[m])}</td><td><strong>${money(pat[m])}</strong></td><td><strong>${pct(p)}</strong><div class="bar"><span style="width:${Math.min(p,100)}%"></span></div></td></tr>`}).join('')}</tbody></table></div></div><div class="card"><div class="section-title"><h2>Últimos movimientos</h2></div>${recentMovements()}</div></div></div>`}
+function recentMovements(){const rows=[...state.deposits.map(x=>({date:x.date,type:'Aporte',detail:x.member,amount:+x.amount})),...state.interestEntries.map(x=>({date:x.date,type:'Interés',detail:x.investmentName||'Rentabilidad',amount:+x.amount}))].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,8);return rows.length?`<table><tbody>${rows.map(r=>`<tr><td><strong>${r.type}</strong><div class="muted">${r.date} · ${r.detail}</div></td><td style="text-align:right">${money(r.amount)}</td></tr>`).join('')}</tbody></table>`:`<div class="empty">Aún no hay movimientos.</div>`}
 
-function investmentsTab(){
- return `<div class="split"><div class="card"><div class="section-title"><h2>Dónde está invertido el dinero</h2></div>${state.investments.length?`<div class="table-wrap"><table><thead><tr><th>Inversión</th><th>Entidad</th><th>Capital</th><th>Tasa E.A.</th><th></th></tr></thead><tbody>${state.investments.map(i=>`<tr><td>${i.name}</td><td>${i.entity}</td><td>${money(i.amount)}</td><td>${i.rate?i.rate+'%':'—'}</td><td>${isAdmin()?`<button class="btn secondary" onclick="removeInvestment('${i.id}')">Eliminar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No hay inversiones registradas.</div>`}</div>
- <div class="card"><div class="section-title"><h2>Registrar inversión</h2></div>${isAdmin()?`<form onsubmit="addInvestment(event)" class="form-grid"><div class="field full"><label>Nombre / producto</label><input name="name" placeholder="Ej. CDT 180 días" required></div><div class="field"><label>Entidad</label><input name="entity" placeholder="Ej. Banco X" required></div><div class="field"><label>Capital invertido</label><input type="number" min="1" name="amount" required></div><div class="field"><label>Tasa E.A. (%)</label><input type="number" step="0.01" min="0" name="rate"></div><div class="field"><label>Fecha de inicio</label><input type="date" name="startDate" required></div><div class="field full"><label>Observaciones</label><input name="note" placeholder="Plazo, vencimiento, condiciones..."></div><div class="actions field full"><button class="btn">Guardar inversión</button></div></form>`:`<div class="empty">Tu perfil es de solo lectura.</div>`}</div></div>`;
-}
-function addInvestment(e){e.preventDefault();const f=new FormData(e.target);state.investments.push({id:crypto.randomUUID(),name:f.get('name'),entity:f.get('entity'),amount:Number(f.get('amount')),rate:Number(f.get('rate')||0),startDate:f.get('startDate'),note:f.get('note')});save();}
-function removeInvestment(id){if(confirm('¿Eliminar esta inversión?')){state.investments=state.investments.filter(i=>i.id!==id);save();}}
+function depositsTab(){return `<div class="split"><div class="card"><div class="section-title"><h2>Historial de aportes</h2></div>${state.deposits.length?`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Persona</th><th>Valor</th><th>Nota</th><th></th></tr></thead><tbody>${[...state.deposits].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(d=>`<tr><td>${d.date}</td><td>${d.member}</td><td>${money(d.amount)}</td><td>${d.note||'—'}</td><td>${isAdmin()?`<div class="row-actions"><button class="btn secondary" onclick="editDeposit('${d.id}')">Editar</button><button class="btn secondary" onclick="removeDeposit('${d.id}')">Eliminar</button></div>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No hay aportes registrados.</div>`}</div><div class="card"><div class="section-title"><h2>Registrar aporte</h2></div>${isAdmin()?depositForm():`<div class="empty">Tu perfil es de solo lectura.</div>`}</div></div>`}
+function depositForm(){return `<form onsubmit="addDeposit(event)" class="form-grid"><div class="field"><label>Fecha</label><input type="date" name="date" required value="${todayISO()}"></div><div class="field"><label>Participante</label><select name="member" required>${MEMBERS.map(m=>`<option>${m}</option>`).join('')}</select></div><div class="field full"><label>Valor aportado</label><input type="number" min="0.01" step="0.01" name="amount" required></div><div class="field full"><label>Nota opcional</label><input name="note"></div><div class="actions field full"><button class="btn">Guardar aporte</button></div></form>`}
+function addDeposit(e){e.preventDefault();const f=new FormData(e.target);state.deposits.push({id:crypto.randomUUID(),date:f.get('date'),member:f.get('member'),amount:+f.get('amount'),note:f.get('note')});save()}
+function editDeposit(id){const d=state.deposits.find(x=>x.id===id);if(!d||!isAdmin())return;const date=prompt('Fecha (AAAA-MM-DD):',d.date);if(date===null)return;const member=prompt('Participante:',d.member);if(member===null)return;if(!MEMBERS.includes(member)){alert('Nombre inválido.');return}const amount=prompt('Valor:',String(d.amount));if(amount===null)return;const value=Number(String(amount).replace(',','.'));if(!Number.isFinite(value)||value<=0){alert('Valor inválido.');return}const note=prompt('Nota:',d.note||'');if(note===null)return;Object.assign(d,{date,member,amount:value,note});save()}
+function removeDeposit(id){if(isAdmin()&&confirm('¿Eliminar este aporte?')){state.deposits=state.deposits.filter(d=>d.id!==id);save()}}
 
-function interestTab(){
- return `<div class="split"><div class="card"><div class="section-title"><h2>Intereses registrados</h2></div>${state.interestEntries.length?`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversión</th><th>Ganancia</th><th></th></tr></thead><tbody>${[...state.interestEntries].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(i=>`<tr><td>${i.date}</td><td>${i.investmentName}</td><td class="positive">${money(i.amount)}</td><td>${isAdmin()?`<button class="btn secondary" onclick="removeInterest('${i.id}')">Eliminar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No se han registrado intereses.</div>`}</div>
- <div class="card"><div class="section-title"><h2>Registrar rentabilidad</h2></div>${isAdmin()?`<form onsubmit="addInterest(event)" class="form-grid"><div class="field"><label>Fecha</label><input type="date" name="date" required></div><div class="field"><label>Inversión</label><select name="investmentName" required>${state.investments.length?state.investments.map(i=>`<option>${i.name}</option>`).join(''):`<option>General</option>`}</select></div><div class="field full"><label>Interés ganado</label><input type="number" min="0" step="1" name="amount" required></div><div class="field full"><label>Nota opcional</label><input name="note"></div><div class="actions field full"><button class="btn">Guardar interés</button></div></form>`:`<div class="empty">Tu perfil es de solo lectura.</div>`}</div></div>`;
-}
-function addInterest(e){e.preventDefault();const f=new FormData(e.target);state.interestEntries.push({id:crypto.randomUUID(),date:f.get('date'),investmentName:f.get('investmentName'),amount:Number(f.get('amount')),note:f.get('note')});save();}
-function removeInterest(id){if(confirm('¿Eliminar este interés?')){state.interestEntries=state.interestEntries.filter(i=>i.id!==id);save();}}
+function investmentsTab(){return `<div class="split"><div class="card"><div class="section-title"><h2>Dónde está invertido el dinero</h2></div>${state.investments.length?`<div class="table-wrap"><table><thead><tr><th>Inversión</th><th>Entidad</th><th>Capital</th><th>Tasa E.A.</th><th>Interés diario</th><th>Días</th><th>Proyectado a hoy</th><th></th></tr></thead><tbody>${state.investments.map(i=>`<tr><td>${i.name}</td><td>${i.entity}</td><td>${money(i.amount)}</td><td>${pct(i.rate)}</td><td class="positive">${money(projectedDailyInterest(i))}</td><td>${daysBetween(i.startDate)}</td><td class="positive"><strong>${money(projectedInterest(i))}</strong></td><td>${isAdmin()?`<div class="row-actions"><button class="btn secondary" onclick="editInvestmentRate('${i.id}')">Actualizar tasa</button><button class="btn secondary" onclick="removeInvestment('${i.id}')">Eliminar</button></div>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No hay inversiones registradas.</div>`}</div><div class="card"><div class="section-title"><h2>Registrar inversión</h2></div>${isAdmin()?`<form onsubmit="addInvestment(event)" class="form-grid"><div class="field full"><label>Nombre / producto</label><input name="name" required></div><div class="field"><label>Entidad</label><input name="entity" required></div><div class="field"><label>Capital invertido</label><input type="number" min="0.01" step="0.01" name="amount" required></div><div class="field"><label>Tasa E.A. (%)</label><input type="number" step="0.01" min="0" name="rate"></div><div class="field"><label>Fecha de inicio</label><input type="date" name="startDate" required value="${todayISO()}"></div><div class="field full"><label>Observaciones</label><input name="note"></div><div class="actions field full"><button class="btn">Guardar inversión</button></div></form>`:`<div class="empty">Tu perfil es de solo lectura.</div>`}</div></div>`}
+function addInvestment(e){e.preventDefault();const f=new FormData(e.target);state.investments.push({id:crypto.randomUUID(),name:f.get('name'),entity:f.get('entity'),amount:+f.get('amount'),rate:+(f.get('rate')||0),startDate:f.get('startDate'),note:f.get('note')});save()}
+function editInvestmentRate(id){const i=state.investments.find(x=>x.id===id);if(!i||!isAdmin())return;const v=prompt(`Nueva tasa E.A. (%) para ${i.name}:`,String(i.rate||0));if(v===null)return;const rate=Number(String(v).replace(',','.'));if(!Number.isFinite(rate)||rate<0){alert('Tasa inválida.');return}i.rate=rate;save()}
+function removeInvestment(id){if(isAdmin()&&confirm('¿Eliminar esta inversión?')){state.investments=state.investments.filter(i=>i.id!==id);save()}}
 
-function render(){ state.currentUser ? dashboardView() : loginView(); }
+function interestDistributionPreview(){const k=currentMonthKey(),m=monthlyDepositTotals(k),interest=monthlyInterestAmount(k),base=MEMBERS.reduce((a,x)=>a+m[x],0);if(!interest)return `<div class="empty">Aún no hay intereses registrados en ${currentMonthLabel()}.</div>`;if(!base)return `<div class="note">Hay intereses registrados este mes, pero aún no existen aportes elegibles.</div>`;return `<div class="table-wrap"><table><thead><tr><th>Participante</th><th>Aporte del mes</th><th>Interés asignado</th></tr></thead><tbody>${MEMBERS.filter(x=>m[x]>0).map(x=>`<tr><td>${x}</td><td>${money(m[x])}</td><td class="positive">${money(interest*m[x]/base)}</td></tr>`).join('')}</tbody></table></div>`}
+function interestTab(){return `<div class="summary-stack"><div class="card"><div class="section-title"><div><h2>Distribución de intereses del mes</h2><span class="muted">Solo participan quienes ahorraron en ${currentMonthLabel()}</span></div><strong>${money(monthlyInterestAmount(currentMonthKey()))}</strong></div>${interestDistributionPreview()}</div><div class="split"><div class="card"><div class="section-title"><h2>Intereses registrados</h2></div>${state.interestEntries.length?`<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversión</th><th>Ganancia</th><th></th></tr></thead><tbody>${[...state.interestEntries].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(i=>`<tr><td>${i.date}</td><td>${i.investmentName}</td><td class="positive">${money(i.amount)}</td><td>${isAdmin()?`<button class="btn secondary" onclick="removeInterest('${i.id}')">Eliminar</button>`:''}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">No se han registrado intereses.</div>`}</div><div class="card"><div class="section-title"><h2>Registrar rentabilidad</h2></div>${isAdmin()?`<form onsubmit="addInterest(event)" class="form-grid"><div class="field"><label>Fecha</label><input type="date" name="date" required value="${todayISO()}"></div><div class="field"><label>Inversión</label><select name="investmentName" required>${state.investments.length?state.investments.map(i=>`<option>${i.name}</option>`).join(''):`<option>General</option>`}</select></div><div class="field full"><label>Interés ganado</label><input type="number" min="0" step="0.01" name="amount" required></div><div class="field full"><label>Nota opcional</label><input name="note"></div><div class="actions field full"><button class="btn">Guardar interés</button></div></form>`:`<div class="empty">Tu perfil es de solo lectura.</div>`}</div></div></div>`}
+function addInterest(e){e.preventDefault();const f=new FormData(e.target);state.interestEntries.push({id:crypto.randomUUID(),date:f.get('date'),investmentName:f.get('investmentName'),amount:+f.get('amount'),note:f.get('note')});save()}
+function removeInterest(id){if(isAdmin()&&confirm('¿Eliminar este interés?')){state.interestEntries=state.interestEntries.filter(i=>i.id!==id);save()}}
+function render(){state.currentUser?dashboardView():loginView()}
 render();
