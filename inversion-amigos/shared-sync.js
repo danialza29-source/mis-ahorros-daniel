@@ -35,6 +35,16 @@ async function fetchSharedState({renderAfter=true}={}){
     const row=rows?.[0];
     if(!row)return false;
     const remote=row.state||{};
+
+    // Protección de migración inicial: si Supabase aún está vacío y este
+    // dispositivo ya tiene movimientos locales, conservarlos hasta que un
+    // administrador haga el primer guardado compartido.
+    if(!hasFinancialData(remote)&&hasFinancialData(state)){
+      lastRemoteUpdatedAt=row.updated_at||'';
+      if(renderAfter)render();
+      return true;
+    }
+
     if(row.updated_at&&row.updated_at===lastRemoteUpdatedAt)return true;
     const currentUser=state.currentUser;
     state={...state,...remote,currentUser};
