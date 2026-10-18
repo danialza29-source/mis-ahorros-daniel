@@ -1,5 +1,5 @@
 const SUPABASE_URL='https://zpqpflmzzibhykctctfy.supabase.co';
-const SUPABASE_KEY='PEGA_AQUI_TU_PUBLISHABLE_KEY';
+const SUPABASE_KEY='sb_publishable_UzcS_X6DzvBHAfXAR6XfLg_OQzQg06C';
 const SHARED_STATE_ENDPOINT=`${SUPABASE_URL}/rest/v1/app_state?id=eq.main`;
 let remoteSyncBusy=false;
 let lastRemoteUpdatedAt='';
