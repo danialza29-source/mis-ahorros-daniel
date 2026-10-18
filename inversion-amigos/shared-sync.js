@@ -7,7 +7,6 @@ let lastRemoteUpdatedAt='';
 function sharedHeaders(extra={}){
   return {
     'apikey':SUPABASE_KEY,
-    'Authorization':`Bearer ${SUPABASE_KEY}`,
     'Content-Type':'application/json',
     ...extra
   };
@@ -36,9 +35,6 @@ async function fetchSharedState({renderAfter=true}={}){
     if(!row)return false;
     const remote=row.state||{};
 
-    // Protección de migración inicial: si Supabase aún está vacío y este
-    // dispositivo ya tiene movimientos locales, conservarlos hasta que un
-    // administrador haga el primer guardado compartido.
     if(!hasFinancialData(remote)&&hasFinancialData(state)){
       lastRemoteUpdatedAt=row.updated_at||'';
       if(renderAfter)render();
